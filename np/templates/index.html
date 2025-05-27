@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Delay Prediction</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        body {
+            background-image: url("{{ url_for('static', filename='sr.webp') }}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            min-height: 100vh;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        h1,
+        h2,
+        p,
+        label,
+        input,
+        button,
+        a {
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .dark-mode {
+            background-color: #1a202c;
+            color: #e2e8f0;
+        }
+
+        .dark-mode h1,
+        .dark-mode h2,
+        .dark-mode p,
+        .dark-mode label,
+        .dark-mode input,
+        .dark-mode button,
+        .dark-mode a {
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.1);
+        }
+
+        .dark-mode .bg-opacity-50 {
+            background-color: rgba(45, 55, 72, 0.9);
+        }
+
+        .dark-mode .bg-white {
+            background-color: #2d3748;
+        }
+
+        .dark-mode .text-gray-700 {
+            color: #e2e8f0;
+        }
+
+        .dark-mode .text-gray-600 {
+            color: #a0aec0;
+        }
+
+        .dark-mode .bg-indigo-600 {
+            background-color: #4a5568;
+        }
+
+        .dark-mode .bg-indigo-600:hover {
+            background-color: #5a677a;
+        }
+
+        .dark-mode .bg-gray-100 {
+            background-color: #4a5568;
+        }
+
+        .dark-mode canvas {
+            background-color: #4a5568;
+            border-radius: 8px;
+        }
+
+        #flightSuggestions {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            max-height: 120px;
+            overflow-y: auto;
+            width: 100%;
+            z-index: 10;
+        }
+
+        .dark-mode #flightSuggestions {
+            background-color: #2d3748;
+            border-color: #4a5568;
+        }
+
+        #flightSuggestions div {
+            padding: 6px;
+            cursor: pointer;
+        }
+
+        #flightSuggestions div:hover {
+            background-color: #f0f0f0;
+        }
+
+        .dark-mode #flightSuggestions div:hover {
+            background-color: #4a5568;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen">
+    <div class="flex flex-col items-end justify-center min-h-screen p-4">
+        <div class="w-full max-w-sm bg-opacity-50 bg-white rounded-lg shadow-lg p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-xl font-bold text-gray-800">Flight Delay Prediction</h1>
+                <button id="themeToggle" class="p-1 bg-gray-200 rounded-full">
+                    <svg id="themeIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            {% with messages = get_flashed_messages(with_categories=True) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div
+                class="mb-2 p-2 rounded {{ 'bg-red-100 border border-red-400 text-red-700' if category == 'error' else 'bg-green-100 border border-green-400 text-green-700' }} {{ 'hidden' if not message else '' }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <!-- Live Statistics -->
+            <div class="mb-4 p-3 bg-gray-100 rounded-lg">
+                <h2 class="text-md font-semibold text-gray-700 mb-1">Prediction Statistics</h2>
+                <p class="text-gray-600 text-sm">Total Predictions: {{ stats.total_predictions }}</p>
+                <p class="text-gray-600 text-sm">Delayed Flights: {{ "%.2f"|format(stats.delay_percentage) }}%</p>
+            </div>
+
+            <!-- Prediction Form -->
+            <form action="{{ url_for('predict') }}" method="POST" class="space-y-3">
+                <div class="relative">
+                    <label for="flight_name" class="block text-gray-700 text-sm">Flight Name:</label>
+                    <input type="text" id="flight_name" name="flight_name" required
+                        class="w-full p-1 border rounded-md text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="e.g., AI-101">
+                    <div id="flightSuggestions" class="hidden"></div>
+                </div>
+
+                <div>
+                    <label for="departure_datetime" class="block text-gray-700 text-sm">Departure Date & Time:</label>
+                    <input type="text" id="departure_datetime" name="departure_datetime" required
+                        class="w-full p-1 border rounded-md text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Select date and time">
+                </div>
+
+                <div>
+                    <label for="carrier_ct" class="block text-gray-700 text-sm">Carrier Delay Count:</label>
+                    <input type="number" id="carrier_ct" name="carrier_ct" step="0.01" required
+                        class="w-full p-1 border rounded-md text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label for="nas_ct" class="block text-gray-700 text-sm">NAS Delay Count:</label>
+                    <input type="number" id="nas_ct" name="nas_ct" step="0.01" required
+                        class="w-full p-1 border rounded-md text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label for="security_ct" class="block text-gray-700 text-sm">Security Delay Count:</label>
+                    <input type="number" id="security_ct" name="security_ct" step="0.01" required
+                        class="w-full p-1 border rounded-md text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <button type="submit"
+                    class="w-full py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors duration-200 text-sm">Predict
+                    Delay</button>
+            </form>
+
+            <!-- Chart for Delay Factors (Hidden by Default) -->
+            {% if carrier_ct is defined %}
+            <div class="mt-4">
+                <h2 class="text-md font-semibold text-gray-700 mb-1">Delay Factors Breakdown</h2>
+                <canvas id="delayChart" height="80"></canvas>
+            </div>
+            {% endif %}
+
+            <div class="text-center mt-4">
+                <a href="{{ url_for('logout') }}"
+                    class="inline-block px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors duration-200 text-sm">Logout</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Theme Toggle
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const body = document.body;
+
+        themeToggle.addEventListener('click', () => {
+            body.classList.toggle('dark-mode');
+            if (body.classList.contains('dark-mode')) {
+                themeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                themeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>';
+                localStorage.setItem('theme', 'light');
+            }
+        });
+
+        // Load saved theme
+        if (localStorage.getItem('theme') === 'dark') {
+            body.classList.add('dark-mode');
+            themeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>';
+        }
+
+        // Flatpickr for Date-Time Picker
+        flatpickr("#departure_datetime", {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i",
+            minDate: "2000-01-01",
+            maxDate: "2025-12-31",
+            time_24hr: true
+        });
+
+        // Autocomplete for Flight Name
+        const flightInput = document.getElementById('flight_name');
+        const suggestionsBox = document.getElementById('flightSuggestions');
+
+        flightInput.addEventListener('input', async () => {
+            const query = flightInput.value.toUpperCase();
+            if (query.length < 2) {
+                suggestionsBox.classList.add('hidden');
+                suggestionsBox.innerHTML = '';
+                return;
+            }
+
+            const response = await fetch(`/autocomplete?query=${query}`);
+            const suggestions = await response.json();
+
+            suggestionsBox.innerHTML = '';
+            if (suggestions.length === 0) {
+                suggestionsBox.classList.add('hidden');
+                return;
+            }
+
+            suggestions.forEach(suggestion => {
+                const div = document.createElement('div');
+                div.textContent = suggestion;
+                div.addEventListener('click', () => {
+                    flightInput.value = suggestion;
+                    suggestionsBox.classList.add('hidden');
+                    suggestionsBox.innerHTML = '';
+                });
+                suggestionsBox.appendChild(div);
+            });
+            suggestionsBox.classList.remove('hidden');
+        });
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!flightInput.contains(e.target) && !suggestionsBox.contains(e.target)) {
+                suggestionsBox.classList.add('hidden');
+                suggestionsBox.innerHTML = '';
+            }
+        });
+
+        // Chart.js for Delay Factors
+        {% if carrier_ct is defined %}
+        const ctx = document.getElementById('delayChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Carrier Delay', 'NAS Delay', 'Security Delay'],
+                datasets: [{
+                    label: 'Delay Factors',
+                    data: [{{ carrier_ct }}, {{ nas_ct }}, {{ security_ct }}],
+            backgroundColor: ['#4c51bf', '#ed8936', '#e53e3e'],
+            borderColor: ['#434190', '#c05621', '#c53030'],
+            borderWidth: 1
+                }]
+            },
+            options: {
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Delay Count',
+                        font: {
+                            size: 10
+                        }
+                    },
+                    ticks: {
+                        font: {
+                            size: 10
+                        }
+                    }
+                },
+                x: {
+                    ticks: {
+                        font: {
+                            size: 10
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+        });
+        {% endif %}
+    </script>
+</body>
+
+</html>
